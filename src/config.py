@@ -1,6 +1,6 @@
 import logging
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
@@ -10,8 +10,6 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     MAIN_API_USERNAME: str
     MAIN_API_PASSWORD: str
-
-    model_config = SettingsConfigDict(env_file=".env")
 
 
 # noinspection PyArgumentList
