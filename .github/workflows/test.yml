@@ -1,0 +1,46 @@
+name: Run Tests
+
+on:
+  push:
+    branches:
+      - "main"
+      - "feature/*"
+      - "bugfix/*"
+  pull_request:
+    branches:
+      - "main"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.12"
+
+      # Load mock environment variables for testing
+      - name: Load mock environment variables
+        id: load-env
+        run: |
+          if [ -f .env.test ]; then
+            export $(cat .env.test | xargs)
+          fi
+          env > $GITHUB_ENV
+
+      - name: Install Poetry
+        run: |
+          pip install --upgrade pip
+          pip install poetry
+
+      - name: Install dependencies
+        run: |
+          poetry install --with dev --no-root
+
+      - name: Run Tests
+        run: |
+          poetry run pytest --maxfail=5 --disable-warnings
