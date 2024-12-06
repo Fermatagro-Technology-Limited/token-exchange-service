@@ -1,0 +1,26 @@
+[tool.poetry]
+name = "token-exchange-service"
+version = "1.0.0"
+description = ""
+authors = ["markbeg <mark.beg@fermata.tech>"]
+readme = "README.md"
+packages = [{include = "token_exchange_service"}]
+
+[tool.poetry.dependencies]
+python = "^3.12"
+fastapi = "^0.115.6"
+pyjwt = {extras = ["crypto"], version = "^2.10.1"}
+pydantic = "^2.10.3"
+uvicorn = "^0.32.1"
+python-consul = "^1.1.0"
+pydantic-settings = "^2.6.1"
+httpx = "^0.28.1"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.3.4"
+pytest-asyncio = "^0.24.0"
+pytest-mock = "^3.14.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
