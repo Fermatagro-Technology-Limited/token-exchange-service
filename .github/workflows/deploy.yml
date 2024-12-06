@@ -1,0 +1,37 @@
+name: Build and Push Docker Image to ECR
+
+on:
+  push:
+    branches:
+      - "main"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v3
+
+      - name: Set up AWS CLI
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: "eu-central-1"
+
+      - name: Log in to Amazon ECR
+        run: |
+          aws ecr get-login-password --region eu-central-1 | docker login --username AWS --password-stdin 579069529726.dkr.ecr.eu-central-1.amazonaws.com
+
+      - name: Generate version tag
+        id: version
+        run: echo "VERSION=$(date +'%Y%m%d-%H%M%S')" >> $GITHUB_ENV
+
+      - name: Build Docker image
+        run: |
+          docker build -t 579069529726.dkr.ecr.eu-central-1.amazonaws.com/token-exchange-service:${{ env.VERSION }} .
+
+      - name: Push Docker image to Amazon ECR
+        run: |
+          docker push 579069529726.dkr.ecr.eu-central-1.amazonaws.com/token-exchange-service:${{ env.VERSION }}
