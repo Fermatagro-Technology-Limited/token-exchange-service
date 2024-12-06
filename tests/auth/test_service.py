@@ -20,8 +20,6 @@ TEST_MAIN_API_LOGIN_RESPONSE = {
 }
 
 
-
-
 def create_response(status_code: int, json_data: dict) -> Response:
     response = Response(
         status_code=status_code,
