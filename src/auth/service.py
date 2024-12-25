@@ -104,23 +104,23 @@ class ExchangeTokenService:
 
     @staticmethod
     async def _auth_to_main_api(client: httpx.AsyncClient) -> str:
-        if False and access_token_cache.get("token"):
+        if access_token_cache.get(client.base_url):
             logger.info("Using cached access token")
-            return access_token_cache["token"]
-        elif refresh_token_cache.get("token"):
+            return access_token_cache[client.base_url]
+        elif refresh_token_cache.get(client.base_url):
             logger.info("Using cached refresh token to get new access token")
             response = await client.post(
                 "refresh",
                 json={
-                    "refresh_token": refresh_token_cache["token"],
+                    "refresh_token": refresh_token_cache[client.base_url],
                 },
                 timeout=10.0
             )
             response.raise_for_status()
             response_data = response.json()
 
-            access_token_cache["token"] = response_data["token"]
-            refresh_token_cache["token"] = response_data["refresh_token"]
+            access_token_cache[client.base_url] = response_data["token"]
+            refresh_token_cache[client.base_url] = response_data["refresh_token"]
 
             return response_data["token"]
         else:
@@ -136,8 +136,8 @@ class ExchangeTokenService:
             response.raise_for_status()
             response_data = response.json()
 
-            access_token_cache["token"] = response_data["token"]
-            refresh_token_cache["token"] = response_data["refresh_token"]
+            access_token_cache[client.base_url] = response_data["token"]
+            refresh_token_cache[client.base_url] = response_data["refresh_token"]
 
             return response_data["token"]
 
