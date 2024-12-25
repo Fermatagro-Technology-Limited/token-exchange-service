@@ -2,6 +2,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.auth.router import router as auth_router
+from src.config import settings
+
+settings.init_sentry()
 
 app = FastAPI(
     title="Token Exchange Service",
