@@ -32,12 +32,9 @@ def create_response(status_code: int, json_data: dict) -> Response:
 
 @pytest.fixture
 def mock_consul() -> Mock:
-    with patch('consul.Consul') as mock:
-        consul_instance = Mock()
-        mock.return_value = consul_instance
-
+    with patch('src.auth.service.consul_client') as mock:
         # Mock KV response
-        consul_instance.kv.get.return_value = (
+        mock.kv.get.return_value = (
             None,
             {
                 'Value': f'{{"{TEST_ORG_ID}": "{TEST_MAIN_API_URL}"}}'.encode('utf-8')
@@ -91,7 +88,7 @@ async def test_get_org_api_url(mock_consul: Mock) -> None:
     service = ExchangeTokenService()
     url = await service._get_org_api_url(TEST_ORG_ID)
     assert url == TEST_MAIN_API_URL
-    mock_consul.return_value.kv.get.assert_called_once_with('hortiview/mainApiByOrgId.json')
+    mock_consul.kv.get.assert_called_once_with('hortiview/mainApiByOrgId.json')
 
 
 @pytest.mark.asyncio

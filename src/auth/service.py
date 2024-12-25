@@ -2,11 +2,11 @@ import json
 import logging
 from typing import Dict, Tuple
 
-# noinspection PyPackageRequirements
-import consul
 import httpx
 import jwt
 from async_lru import alru_cache
+from cachetools import TTLCache
+from consul import Consul
 from fastapi import HTTPException, status
 
 from src.config import settings
@@ -14,17 +14,16 @@ from src.config import settings
 logger = logging.getLogger(__name__)
 logger.setLevel(settings.LOG_LEVEL)
 
+consul_client = Consul(
+    host=settings.CONSUL_HOST,
+    port=settings.CONSUL_PORT
+)
+
 
 class ExchangeTokenService:
-    def __init__(self):
-        self._consul = consul.Consul(
-            host=settings.CONSUL_HOST,
-            port=settings.CONSUL_PORT
-        )
-
     @alru_cache(maxsize=1, ttl=300)
     async def _get_org_api_urls(self) -> dict[str, str]:
-        index, data = self._consul.kv.get('hortiview/mainApiByOrgId.json')
+        index, data = consul_client.kv.get('hortiview/mainApiByOrgId.json')
         if not data or not data['Value']:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
