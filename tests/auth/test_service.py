@@ -12,7 +12,7 @@ TEST_TOKEN = ("eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9."
               "signature")
 TEST_ORG_ID = "b7dce249-5d17-4ad3-a41a-42f63ce3eba8"
 TEST_USER_ID = "62707703-a483-41fb-8f2f-4c74d2889786"
-TEST_MAIN_API_URL = "https://api-dev.fermata.cloud/api/v1"
+TEST_MAIN_API_URL = "https://mock-test.fermata.cloud/api/v1"
 TEST_MAIN_API_LOGIN_RESPONSE = {
     "token": "token",
     "refresh_token": "refresh_token",
@@ -32,12 +32,9 @@ def create_response(status_code: int, json_data: dict) -> Response:
 
 @pytest.fixture
 def mock_consul() -> Mock:
-    with patch('consul.Consul') as mock:
-        consul_instance = Mock()
-        mock.return_value = consul_instance
-
+    with patch('src.auth.service.consul_client') as mock:
         # Mock KV response
-        consul_instance.kv.get.return_value = (
+        mock.kv.get.return_value = (
             None,
             {
                 'Value': f'{{"{TEST_ORG_ID}": "{TEST_MAIN_API_URL}"}}'.encode('utf-8')
@@ -52,12 +49,12 @@ def mock_httpx_client() -> Response:
         client_instance = Mock()
 
         async def mock_post(*args, **kwargs):
-            if args[0].endswith('/login') or args[0].endswith('/external_login'):
+            if args[0].endswith('login') or args[0].endswith('external_login'):
                 return create_response(status.HTTP_200_OK, TEST_MAIN_API_LOGIN_RESPONSE)
             return create_response(status.HTTP_404_NOT_FOUND, {})
 
         async def mock_get(*args, **kwargs):
-            if args[0].endswith('/jwks'):
+            if args[0].endswith('pem'):
                 # noinspection SpellCheckingInspection
                 return create_response(status.HTTP_200_OK, {
                     "keys": [{
@@ -89,16 +86,16 @@ def mock_jwt_decode() -> Mock:
 @pytest.mark.asyncio
 async def test_get_org_api_url(mock_consul: Mock) -> None:
     service = ExchangeTokenService()
-    url = service._get_org_api_url(TEST_ORG_ID)
+    url = await service._get_org_api_url(TEST_ORG_ID)
     assert url == TEST_MAIN_API_URL
-    mock_consul.return_value.kv.get.assert_called_once_with('hortiview/mainApiByOrgId.json')
+    mock_consul.kv.get.assert_called_once_with('hortiview/mainApiByOrgId.json')
 
 
 @pytest.mark.asyncio
 async def test_get_org_api_url_not_found(mock_consul: Mock) -> None:
     service = ExchangeTokenService()
     with pytest.raises(HTTPException) as exc_info:
-        url = service._get_org_api_url("nonexistent-org")
+        url = await service._get_org_api_url("nonexistent-org")
     assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
 
 

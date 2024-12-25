@@ -1,14 +1,12 @@
 import json
 import logging
-from base64 import urlsafe_b64decode
 from typing import Dict, Tuple
 
-# noinspection PyPackageRequirements
-import consul
 import httpx
 import jwt
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicNumbers
+from async_lru import alru_cache
+from cachetools import TTLCache
+from consul import Consul
 from fastapi import HTTPException, status
 
 from src.config import settings
@@ -16,53 +14,36 @@ from src.config import settings
 logger = logging.getLogger(__name__)
 logger.setLevel(settings.LOG_LEVEL)
 
+consul_client = Consul(
+    host=settings.CONSUL_HOST,
+    port=settings.CONSUL_PORT
+)
+
+access_token_cache = TTLCache(maxsize=1, ttl=300)
+refresh_token_cache = TTLCache(maxsize=1, ttl=60)
+
 
 class ExchangeTokenService:
-    def __init__(self):
-        self._public_key = None
-        self._consul = consul.Consul(
-            host=settings.CONSUL_HOST,
-            port=settings.CONSUL_PORT
-        )
-        self._api_urls_cache = None
+    @alru_cache(maxsize=1, ttl=settings.API_URLS_CACHE_TTL)
+    async def _get_api_urls(self) -> dict[str, str]:
+        index, data = consul_client.kv.get('hortiview/mainApiByOrgId.json')
+        if not data or not data['Value']:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Could not load organization mappings from Consul"
+            )
 
-    @staticmethod
-    def _jwk_to_pem(jwk: dict) -> bytes:
-        """Convert a JWK to PEM format"""
-        # Decode the JWK components
-        e = int.from_bytes(urlsafe_b64decode(jwk['e'] + '==='), byteorder='big')
-        n = int.from_bytes(urlsafe_b64decode(jwk['n'] + '==='), byteorder='big')
+        try:
+            return json.loads(data['Value'].decode('utf-8'))
+        except json.JSONDecodeError:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Invalid organization mappings format in Consul"
+            )
 
-        # Create RSA public numbers
-        public_numbers = RSAPublicNumbers(e=e, n=n)
-        public_key = public_numbers.public_key()
-
-        # Convert to PEM
-        pem = public_key.public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo
-        )
-
-        return pem
-
-    def _get_org_api_url(self, org_id: str) -> str:
-        if self._api_urls_cache is None:
-            index, data = self._consul.kv.get('hortiview/mainApiByOrgId.json')
-            if not data or not data['Value']:
-                raise HTTPException(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail="Could not load organization mappings from Consul"
-                )
-
-            try:
-                self._api_urls_cache = json.loads(data['Value'].decode('utf-8'))
-            except json.JSONDecodeError:
-                raise HTTPException(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail="Invalid organization mappings format in Consul"
-                )
-
-        api_url = self._api_urls_cache.get(org_id)
+    async def _get_org_api_url(self, org_id: str) -> str:
+        api_urls = await self._get_api_urls()
+        api_url = api_urls.get(org_id)
         if not api_url:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -71,32 +52,13 @@ class ExchangeTokenService:
 
         return api_url
 
-    async def get_public_key(self) -> bytes:
-        if not self._public_key:
-            async with httpx.AsyncClient() as client:
-                jwks_url = f"{settings.HORTIVIEW_API_URL}/jwks?api-version=1.0"
-                logger.info(f"Fetching JWKS from {jwks_url}")
-                response = await client.get(jwks_url)
-                response.raise_for_status()
-                jwks = response.json()
-
-                if not jwks.get('keys'):
-                    raise HTTPException(
-                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                        detail="No keys found in JWKS response"
-                    )
-
-                try:
-                    self._public_key = self._jwk_to_pem(jwks['keys'][0])
-                    logger.info("Successfully converted JWK to PEM")
-                except (KeyError, ValueError) as e:
-                    logger.error(f"Error converting JWK to PEM: {e}")
-                    raise HTTPException(
-                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                        detail="Invalid key format in JWKS response"
-                    )
-
-        return self._public_key
+    @classmethod
+    async def get_public_key(cls) -> bytes:
+        async with httpx.AsyncClient(base_url=settings.HORTIVIEW_API_URL) as client:
+            logger.info(f"Fetching public key")
+            response = await client.get("pem?api-version=1.0")
+            response.raise_for_status()
+            return response.content
 
     async def decode_token(self, token: str) -> Tuple[str, str]:
         public_key = await self.get_public_key()
@@ -140,30 +102,58 @@ class ExchangeTokenService:
         logger.info(f"Successfully decoded token for org_id: {org_id}, user_id: {user_id}")
         return org_id, user_id
 
+    @staticmethod
+    async def _auth_to_main_api(client: httpx.AsyncClient) -> str:
+        if False and access_token_cache.get("token"):
+            logger.info("Using cached access token")
+            return access_token_cache["token"]
+        elif refresh_token_cache.get("token"):
+            logger.info("Using cached refresh token to get new access token")
+            response = await client.post(
+                "refresh",
+                json={
+                    "refresh_token": refresh_token_cache["token"],
+                },
+                timeout=10.0
+            )
+            response.raise_for_status()
+            response_data = response.json()
+
+            access_token_cache["token"] = response_data["token"]
+            refresh_token_cache["token"] = response_data["refresh_token"]
+
+            return response_data["token"]
+        else:
+            logger.info("Authenticating to MainAPI")
+            response = await client.post(
+                "login",
+                json={
+                    "username": settings.MAIN_API_USERNAME,
+                    "password": settings.MAIN_API_PASSWORD
+                },
+                timeout=10.0
+            )
+            response.raise_for_status()
+            response_data = response.json()
+
+            access_token_cache["token"] = response_data["token"]
+            refresh_token_cache["token"] = response_data["refresh_token"]
+
+            return response_data["token"]
+
     async def login_to_org(self, org_id: str, user_id: str, token: str) -> Dict:
-        base_url = self._get_org_api_url(org_id)
+        base_url = await self._get_org_api_url(org_id)
         logger.info(f"Getting auth token from {base_url}/login")
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(base_url=base_url) as client:
             try:
-                # First authenticate to get the bearer token
-                auth_response = await client.post(
-                    f"{base_url}/login",
-                    json={
-                        "username": settings.MAIN_API_USERNAME,
-                        "password": settings.MAIN_API_PASSWORD
-                    },
-                    timeout=10.0
-                )
-                auth_response.raise_for_status()
-                bearer_token = auth_response.json()["token"]
+                bearer_token = await self._auth_to_main_api(client)
 
                 # Then make the external_login request with the bearer token
-                login_url = f"{base_url}/external_login"
-                logger.info(f"Forwarding login request to {login_url}")
+                logger.info("Authorizing external user")
 
                 response = await client.post(
-                    login_url,
+                    "external_login",
                     json={
                         "token": token,
                         "user_id": user_id
