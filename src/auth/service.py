@@ -24,7 +24,6 @@ class ExchangeTokenService:
             host=settings.CONSUL_HOST,
             port=settings.CONSUL_PORT
         )
-        self._api_urls_cache = None
 
     @staticmethod
     def _jwk_to_pem(jwk: dict) -> bytes:
@@ -45,24 +44,25 @@ class ExchangeTokenService:
 
         return pem
 
-    def _get_org_api_url(self, org_id: str) -> str:
-        if self._api_urls_cache is None:
-            index, data = self._consul.kv.get('hortiview/mainApiByOrgId.json')
-            if not data or not data['Value']:
-                raise HTTPException(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail="Could not load organization mappings from Consul"
-                )
+    async def _get_org_api_urls(self) -> dict[str, str]:
+        index, data = self._consul.kv.get('hortiview/mainApiByOrgId.json')
+        if not data or not data['Value']:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Could not load organization mappings from Consul"
+            )
 
-            try:
-                self._api_urls_cache = json.loads(data['Value'].decode('utf-8'))
-            except json.JSONDecodeError:
-                raise HTTPException(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail="Invalid organization mappings format in Consul"
-                )
+        try:
+            return json.loads(data['Value'].decode('utf-8'))
+        except json.JSONDecodeError:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Invalid organization mappings format in Consul"
+            )
 
-        api_url = self._api_urls_cache.get(org_id)
+    async def _get_org_api_url(self, org_id: str) -> str:
+        api_urls = await self._get_org_api_urls()
+        api_url = api_urls.get(org_id)
         if not api_url:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -141,7 +141,7 @@ class ExchangeTokenService:
         return org_id, user_id
 
     async def login_to_org(self, org_id: str, user_id: str, token: str) -> Dict:
-        base_url = self._get_org_api_url(org_id)
+        base_url = await self._get_org_api_url(org_id)
         logger.info(f"Getting auth token from {base_url}/login")
 
         async with httpx.AsyncClient() as client:

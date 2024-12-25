@@ -89,7 +89,7 @@ def mock_jwt_decode() -> Mock:
 @pytest.mark.asyncio
 async def test_get_org_api_url(mock_consul: Mock) -> None:
     service = ExchangeTokenService()
-    url = service._get_org_api_url(TEST_ORG_ID)
+    url = await service._get_org_api_url(TEST_ORG_ID)
     assert url == TEST_MAIN_API_URL
     mock_consul.return_value.kv.get.assert_called_once_with('hortiview/mainApiByOrgId.json')
 
@@ -98,7 +98,7 @@ async def test_get_org_api_url(mock_consul: Mock) -> None:
 async def test_get_org_api_url_not_found(mock_consul: Mock) -> None:
     service = ExchangeTokenService()
     with pytest.raises(HTTPException) as exc_info:
-        url = service._get_org_api_url("nonexistent-org")
+        url = await service._get_org_api_url("nonexistent-org")
     assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
 
 
