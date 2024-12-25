@@ -24,8 +24,8 @@ refresh_token_cache = TTLCache(maxsize=1, ttl=60)
 
 
 class ExchangeTokenService:
-    @alru_cache(maxsize=1, ttl=300)
-    async def _get_org_api_urls(self) -> dict[str, str]:
+    @alru_cache(maxsize=1, ttl=settings.API_URLS_CACHE_TTL)
+    async def _get_api_urls(self) -> dict[str, str]:
         index, data = consul_client.kv.get('hortiview/mainApiByOrgId.json')
         if not data or not data['Value']:
             raise HTTPException(
@@ -42,7 +42,7 @@ class ExchangeTokenService:
             )
 
     async def _get_org_api_url(self, org_id: str) -> str:
-        api_urls = await self._get_org_api_urls()
+        api_urls = await self._get_api_urls()
         api_url = api_urls.get(org_id)
         if not api_url:
             raise HTTPException(
