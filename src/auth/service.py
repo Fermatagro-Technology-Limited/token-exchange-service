@@ -19,6 +19,9 @@ consul_client = Consul(
     port=settings.CONSUL_PORT
 )
 
+access_token_cache = TTLCache(maxsize=1, ttl=300)
+refresh_token_cache = TTLCache(maxsize=1, ttl=60)
+
 
 class ExchangeTokenService:
     @alru_cache(maxsize=1, ttl=300)
@@ -99,30 +102,58 @@ class ExchangeTokenService:
         logger.info(f"Successfully decoded token for org_id: {org_id}, user_id: {user_id}")
         return org_id, user_id
 
+    @staticmethod
+    async def _auth_to_main_api(client: httpx.AsyncClient) -> str:
+        if False and access_token_cache.get("token"):
+            logger.info("Using cached access token")
+            return access_token_cache["token"]
+        elif refresh_token_cache.get("token"):
+            logger.info("Using cached refresh token to get new access token")
+            response = await client.post(
+                "refresh",
+                json={
+                    "refresh_token": refresh_token_cache["token"],
+                },
+                timeout=10.0
+            )
+            response.raise_for_status()
+            response_data = response.json()
+
+            access_token_cache["token"] = response_data["token"]
+            refresh_token_cache["token"] = response_data["refresh_token"]
+
+            return response_data["token"]
+        else:
+            logger.info("Authenticating to MainAPI")
+            response = await client.post(
+                "login",
+                json={
+                    "username": settings.MAIN_API_USERNAME,
+                    "password": settings.MAIN_API_PASSWORD
+                },
+                timeout=10.0
+            )
+            response.raise_for_status()
+            response_data = response.json()
+
+            access_token_cache["token"] = response_data["token"]
+            refresh_token_cache["token"] = response_data["refresh_token"]
+
+            return response_data["token"]
+
     async def login_to_org(self, org_id: str, user_id: str, token: str) -> Dict:
         base_url = await self._get_org_api_url(org_id)
         logger.info(f"Getting auth token from {base_url}/login")
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(base_url=base_url) as client:
             try:
-                # First authenticate to get the bearer token
-                auth_response = await client.post(
-                    f"{base_url}/login",
-                    json={
-                        "username": settings.MAIN_API_USERNAME,
-                        "password": settings.MAIN_API_PASSWORD
-                    },
-                    timeout=10.0
-                )
-                auth_response.raise_for_status()
-                bearer_token = auth_response.json()["token"]
+                bearer_token = await self._auth_to_main_api(client)
 
                 # Then make the external_login request with the bearer token
-                login_url = f"{base_url}/external_login"
-                logger.info(f"Forwarding login request to {login_url}")
+                logger.info("Authorizing external user")
 
                 response = await client.post(
-                    login_url,
+                    "external_login",
                     json={
                         "token": token,
                         "user_id": user_id

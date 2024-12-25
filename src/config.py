@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = logging.getLevelName(logging.INFO)
     MAIN_API_USERNAME: str
     MAIN_API_PASSWORD: str
+    MAIN_API_ACCESS_TOKEN_TTL: int = 60 * 60 * 12 - 10  # 12 hours minus 10 seconds for safety
+    MAIN_API_REFRESH_TOKEN_TTL: int = 60 * 60 * 24 * 3 - 10  # 3 days minus 10 seconds for safety
     ENV: str | None = None
     SENTRY_DSN: str | None = None
 

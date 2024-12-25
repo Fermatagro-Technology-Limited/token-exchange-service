@@ -12,7 +12,7 @@ TEST_TOKEN = ("eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9."
               "signature")
 TEST_ORG_ID = "b7dce249-5d17-4ad3-a41a-42f63ce3eba8"
 TEST_USER_ID = "62707703-a483-41fb-8f2f-4c74d2889786"
-TEST_MAIN_API_URL = "https://api-dev.fermata.cloud/api/v1"
+TEST_MAIN_API_URL = "https://mock-test.fermata.cloud/api/v1"
 TEST_MAIN_API_LOGIN_RESPONSE = {
     "token": "token",
     "refresh_token": "refresh_token",
@@ -49,12 +49,12 @@ def mock_httpx_client() -> Response:
         client_instance = Mock()
 
         async def mock_post(*args, **kwargs):
-            if args[0].endswith('/login') or args[0].endswith('/external_login'):
+            if args[0].endswith('login') or args[0].endswith('external_login'):
                 return create_response(status.HTTP_200_OK, TEST_MAIN_API_LOGIN_RESPONSE)
             return create_response(status.HTTP_404_NOT_FOUND, {})
 
         async def mock_get(*args, **kwargs):
-            if args[0].endswith('/jwks'):
+            if args[0].endswith('pem'):
                 # noinspection SpellCheckingInspection
                 return create_response(status.HTTP_200_OK, {
                     "keys": [{
