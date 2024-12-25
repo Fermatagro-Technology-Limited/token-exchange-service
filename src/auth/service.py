@@ -7,6 +7,7 @@ from typing import Dict, Tuple
 import consul
 import httpx
 import jwt
+from async_lru import alru_cache
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicNumbers
 from fastapi import HTTPException, status
@@ -44,6 +45,7 @@ class ExchangeTokenService:
 
         return pem
 
+    @alru_cache(maxsize=1, ttl=300)
     async def _get_org_api_urls(self) -> dict[str, str]:
         index, data = self._consul.kv.get('hortiview/mainApiByOrgId.json')
         if not data or not data['Value']:
