@@ -1,6 +1,5 @@
 import json
 import logging
-from base64 import urlsafe_b64decode
 from typing import Dict, Tuple
 
 # noinspection PyPackageRequirements
@@ -8,8 +7,6 @@ import consul
 import httpx
 import jwt
 from async_lru import alru_cache
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicNumbers
 from fastapi import HTTPException, status
 
 from src.config import settings
@@ -20,30 +17,10 @@ logger.setLevel(settings.LOG_LEVEL)
 
 class ExchangeTokenService:
     def __init__(self):
-        self._public_key = None
         self._consul = consul.Consul(
             host=settings.CONSUL_HOST,
             port=settings.CONSUL_PORT
         )
-
-    @staticmethod
-    def _jwk_to_pem(jwk: dict) -> bytes:
-        """Convert a JWK to PEM format"""
-        # Decode the JWK components
-        e = int.from_bytes(urlsafe_b64decode(jwk['e'] + '==='), byteorder='big')
-        n = int.from_bytes(urlsafe_b64decode(jwk['n'] + '==='), byteorder='big')
-
-        # Create RSA public numbers
-        public_numbers = RSAPublicNumbers(e=e, n=n)
-        public_key = public_numbers.public_key()
-
-        # Convert to PEM
-        pem = public_key.public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo
-        )
-
-        return pem
 
     @alru_cache(maxsize=1, ttl=300)
     async def _get_org_api_urls(self) -> dict[str, str]:
@@ -73,32 +50,13 @@ class ExchangeTokenService:
 
         return api_url
 
-    async def get_public_key(self) -> bytes:
-        if not self._public_key:
-            async with httpx.AsyncClient() as client:
-                jwks_url = f"{settings.HORTIVIEW_API_URL}/jwks?api-version=1.0"
-                logger.info(f"Fetching JWKS from {jwks_url}")
-                response = await client.get(jwks_url)
-                response.raise_for_status()
-                jwks = response.json()
-
-                if not jwks.get('keys'):
-                    raise HTTPException(
-                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                        detail="No keys found in JWKS response"
-                    )
-
-                try:
-                    self._public_key = self._jwk_to_pem(jwks['keys'][0])
-                    logger.info("Successfully converted JWK to PEM")
-                except (KeyError, ValueError) as e:
-                    logger.error(f"Error converting JWK to PEM: {e}")
-                    raise HTTPException(
-                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                        detail="Invalid key format in JWKS response"
-                    )
-
-        return self._public_key
+    @classmethod
+    async def get_public_key(cls) -> bytes:
+        async with httpx.AsyncClient(base_url=settings.HORTIVIEW_API_URL) as client:
+            logger.info(f"Fetching public key")
+            response = await client.get("pem?api-version=1.0")
+            response.raise_for_status()
+            return response.content
 
     async def decode_token(self, token: str) -> Tuple[str, str]:
         public_key = await self.get_public_key()
