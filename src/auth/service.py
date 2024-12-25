@@ -167,7 +167,7 @@ class ExchangeTokenService:
                 return {**response.json(), "main_api_url": base_url}
 
             except httpx.HTTPError as e:
-                logger.error(f"Error communicating with organization API {base_url}: {str(e)}")
+                logger.error(f"Error communicating with organization API {base_url}: {str(e)}", exc_info=True)
                 raise HTTPException(
                     status_code=status.HTTP_502_BAD_GATEWAY,
                     detail=f"Error communicating with organization API: {str(e)}"
